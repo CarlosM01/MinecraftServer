@@ -81,3 +81,11 @@ make backup FLAGS="--no-compress"
 
 - **Minecraft Version & Type**: You can easily change the server type (Vanilla, Paper, Forge) or version by editing the `.env` file.
 - **Memory Allocation**: Adjust the `MINECRAFT_MEMORY` environment variable in the `.env` file to fit your server's hardware.
+
+## Future Features / Ideas
+
+- [ ] Add a Discord bot integration for server status and management.
+- [ ] Implement an automated modpack updater.
+- [ ] Create a web dashboard to view logs, manage backups, and toggle bot scripts.
+- [ ] Add more complex in-game bots (e.g., auto-builder, guard bot, or automated farmer).
+- [ ] Add support for multiple server instances behind a proxy (e.g., Velocity or BungeeCord).
