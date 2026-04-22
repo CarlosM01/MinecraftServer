@@ -1,5 +1,6 @@
 # Minecraft Server Runtime Data
 /data/
+/data-test/
 /backup/
 
 # Node.js

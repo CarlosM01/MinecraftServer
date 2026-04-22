@@ -51,6 +51,8 @@ We provide a convenient `Makefile` to manage the server and bots:
 - `make console` - Access the Minecraft server terminal (Ctrl+P, Ctrl+Q to exit)
 - `make logs` - View the Minecraft server logs
 - `make backup` - Run the automated backup script (use FLAGS="--flag" to pass arguments)
+- `make test-backup FILE=<path>` - Test a backup file (add FLAGS="--manual" for manual inspection)
+- `make down-test` - Stop and clean up the test server environment
 - `make miner` - Run the XP Miner bot
 - `make lumber` - Run the Lumberjack bot
 - `make init` - Install dependencies for the Node.js bots
@@ -76,6 +78,30 @@ make backup FLAGS="--no-compress"
 - `--keep-uncompressed`: Keep the original directory after compressing
 
 *Backups will be saved to the directory specified inside the `.env` file or script defaults.*
+
+## Testing Backups
+
+You can test the integrity of a backup archive by extracting it and starting a temporary test server. This allows you to verify that the world loads correctly without affecting your main server.
+
+```bash
+make test-backup FILE=path/to/backup.tar.gz
+```
+
+By default, this will extract the backup to a temporary directory, start a test server in the background, wait for it to fully initialize, and then automatically clean up the test environment. It will report whether the verification was successful or not.
+
+### Manual Verification
+
+If you want to connect to the test server and explore the world yourself, you can pass the `--manual` flag:
+
+```bash
+make test-backup FILE=path/to/backup.tar.gz FLAGS="--manual"
+```
+
+This will start the test server and leave it running. You can connect to it at `localhost:25566`. Once you are done verifying the world, you must stop and clean up the test server manually:
+
+```bash
+make down-test
+```
 
 ## Customization
 

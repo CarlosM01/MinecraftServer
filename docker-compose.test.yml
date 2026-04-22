@@ -1,0 +1,25 @@
+
+services:
+  minecraft-test:
+    image: itzg/minecraft-server
+    container_name: minecraft-server-test
+    environment:
+      # Accept the Minecraft EULA (REQUIRED)
+      EULA: "${MINECRAFT_EULA:-TRUE}"
+      # Minecraft version (optional, defaults to the latest "vanilla")
+      VERSION: "${MINECRAFT_VERSION:-}"
+      # Server type (optional: VANILLA, PAPER, FORGE, SPONGE, etc.)
+      TYPE: "${MINECRAFT_TYPE:-VANILLA}"
+      # Assign more memory to the server (e.g., 4GB)
+      MEMORY: "${MINECRAFT_MEMORY:-4G}" 
+      # World configuration (e.g., creative mode)
+      MODE: "${MINECRAFT_MODE:-survival}"
+    ports:
+      # Map a different port (25566) to avoid conflicts
+      - "25566:25565"
+    volumes:
+      # Server data persistence (worlds, configurations, logs)
+      - ./data-test:/data
+    stdin_open: true  # Keep STDIN open
+    tty: true         # Assign a TTY to execute commands
+    restart: "no"     # Do not restart automatically for tests

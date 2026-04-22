@@ -1,4 +1,4 @@
-.PHONY: help up down logs console backup miner lumber init
+.PHONY: help up down logs console backup test-backup down-test miner lumber init
 
 # Default target
 help:
@@ -14,6 +14,8 @@ help:
 	@echo "                   --compose-dir <dir> Directory containing docker-compose.yml"
 	@echo "                   --no-compress       Do not compress the backup into a .tar.gz file"
 	@echo "                   --keep-uncompressed Keep the original directory after compressing"
+	@echo "  make test-backup FILE=<path> - Test a backup file (add FLAGS=\"--manual\" for manual inspection)"
+	@echo "  make down-test - Stop and clean up the test server environment"
 	@echo "  make miner   - Run the XP Miner bot"
 	@echo "  make lumber  - Run the Lumberjack bot"
 	@echo "  make init    - Initialize and install dependencies for the Node.js bots"
@@ -35,6 +37,14 @@ console:
 # Python Backup Script
 backup:
 	python3 scripts/backup_script.py $(FLAGS)
+
+test-backup:
+	@if [ -z "$(FILE)" ]; then echo "Error: FILE argument is required (e.g. make test-backup FILE=backup/mybackup.tar.gz)"; exit 1; fi
+	python3 scripts/test_backup.py --file $(FILE) $(FLAGS)
+
+down-test:
+	docker compose -f docker-compose.test.yml down
+	rm -rf data-test
 
 # Node.js Bots
 miner:
