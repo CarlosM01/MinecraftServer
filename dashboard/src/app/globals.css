@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@theme {
+  /* Tremor specific colors */
+  --color-tremor-brand-50: #eff6ff;
+  --color-tremor-brand-100: #dbeafe;
+  --color-tremor-brand-200: #bfdbfe;
+  --color-tremor-brand-300: #93c5fd;
+  --color-tremor-brand-400: #60a5fa;
+  --color-tremor-brand-500: #3b82f6;
+  --color-tremor-brand-600: #2563eb;
+  --color-tremor-brand-700: #1d4ed8;
+  --color-tremor-brand-800: #1e40af;
+  --color-tremor-brand-900: #1e3a8a;
+  --color-tremor-brand-950: #172554;
+}
+
+:root {
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #121214;
+  --card-foreground: #fafafa;
+  --border: #27272a;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Utilities for Premium Look */
+@layer utilities {
+  .glass-card {
+    @apply bg-[#18181b]/70 backdrop-blur-md border border-white/10 rounded-xl shadow-xl;
+  }
+  
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400;
+  }
+}
