@@ -7,6 +7,7 @@ A complete and containerized Minecraft server setup using Docker Compose. This r
 ## Features
 
 - **Dockerized Server**: Uses the highly customizable `itzg/minecraft-server` Docker image, making deployment and configuration changes seamless.
+- **ZeroTier VPN Gateway**: The server runs behind a ZeroTier VPN, making it invisible from the public internet. Only authorized network members can connect.
 - **Automated Backups**: A robust Python script (`backup_script.py`) that automatically gracefully stops the server, creates a compressed backup of the world data using `rsync` and `tar`, and restarts the server.
 - **Custom Scripts / Bots**: Includes Node.js scripts (like `scripts/miner/miner.js`) to interact with the server or create in-game automation bots.
 - **Pre-configured Gitignore**: The `.gitignore` file is strictly configured to exclude heavy runtime data (`/data`), local backups, and node modules, making this repository lightweight and safe to share without exposing sensitive `.env` variables or server worlds.
@@ -14,6 +15,7 @@ A complete and containerized Minecraft server setup using Docker Compose. This r
 ## Prerequisites
 
 - **Docker** and **Docker Compose**: To run the Minecraft server container.
+- **ZeroTier Account**: Create a network at [my.zerotier.com](https://my.zerotier.com) and note the Network ID.
 - **Python 3**: To run the automated backup script.
 - **Node.js** (optional): If you intend to run or modify the custom JavaScript bots.
 
@@ -56,6 +58,9 @@ We provide a convenient `Makefile` to manage the server and bots:
 - `make miner` - Run the XP Miner bot
 - `make lumber` - Run the Lumberjack bot
 - `make init` - Install dependencies for the Node.js bots
+- `make zt-status` - Show ZeroTier daemon status
+- `make zt-info` - List joined ZeroTier networks and assigned IPs
+- `make zt-peers` - List connected ZeroTier peers
 
 ## Running Backups
 
@@ -102,6 +107,19 @@ This will start the test server and leave it running. You can connect to it at `
 ```bash
 make down-test
 ```
+
+## VPN Access (ZeroTier)
+
+This server uses ZeroTier as a VPN gateway. The Minecraft server is **not exposed to the public internet** — only authorized members of the ZeroTier network can connect.
+
+### Quick Setup
+
+1. Set your `ZEROTIER_NETWORK_ID` in the `.env` file.
+2. Start the server: `make up`
+3. Authorize the node in [my.zerotier.com](https://my.zerotier.com).
+4. Players install ZeroTier, join your network, and connect using the server's ZeroTier IP.
+
+For detailed setup instructions, see [zerotier.md](zerotier.md).
 
 ## Customization
 

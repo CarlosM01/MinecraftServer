@@ -3,6 +3,9 @@
 /data-test/
 /backup/
 
+# ZeroTier identity and configuration (contains private keys)
+/zerotier-config/
+
 # Node.js
 node_modules/
 npm-debug.log

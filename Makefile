@@ -1,4 +1,4 @@
-.PHONY: help up down logs console backup test-backup down-test miner lumber init
+.PHONY: help up down logs console backup test-backup down-test miner lumber init zt-status zt-info zt-peers
 
 # Default target
 help:
@@ -19,6 +19,11 @@ help:
 	@echo "  make miner   - Run the XP Miner bot"
 	@echo "  make lumber  - Run the Lumberjack bot"
 	@echo "  make init    - Initialize and install dependencies for the Node.js bots"
+	@echo ""
+	@echo "ZeroTier VPN:"
+	@echo "  make zt-status - Show ZeroTier daemon status"
+	@echo "  make zt-info   - List joined ZeroTier networks and assigned IPs"
+	@echo "  make zt-peers  - List connected ZeroTier peers"
 
 # Docker Compose commands
 up:
@@ -59,3 +64,13 @@ init:
 	@echo "Installing dependencies for lumber..."
 	cd scripts/lumber && npm install
 	@echo "Done!"
+
+# ZeroTier VPN commands
+zt-status:
+	docker exec zerotier-vpn zerotier-cli status
+
+zt-info:
+	docker exec zerotier-vpn zerotier-cli listnetworks
+
+zt-peers:
+	docker exec zerotier-vpn zerotier-cli listpeers
