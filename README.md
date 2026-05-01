@@ -112,14 +112,113 @@ make down-test
 
 This server uses ZeroTier as a VPN gateway. The Minecraft server is **not exposed to the public internet** — only authorized members of the ZeroTier network can connect.
 
-### Quick Setup
+### How It Works
+
+The Minecraft port (`25565`) is exposed through the ZeroTier container's network namespace. Players must join the same ZeroTier virtual network to reach the server, then connect in-game using the server's **ZeroTier-assigned IP address**.
+
+---
+
+### Server-Side Setup (host machine)
 
 1. Set your `ZEROTIER_NETWORK_ID` in the `.env` file.
-2. Start the server: `make up`
-3. Authorize the node in [my.zerotier.com](https://my.zerotier.com).
-4. Players install ZeroTier, join your network, and connect using the server's ZeroTier IP.
+2. Start the stack: `make up`
+3. The ZeroTier container will automatically join the network on startup.
+4. Log in to [my.zerotier.com](https://my.zerotier.com), go to your network, and **authorize** the new node that appears.
+5. Find the ZeroTier IP assigned to the server:
+   ```bash
+   make zt-info
+   ```
+   Share this IP with players — they will use it to connect in-game.
 
-For detailed setup instructions, see [zerotier.md](zerotier.md).
+---
+
+### Connecting as a Player — Windows
+
+1. **Download and install ZeroTier One**
+   - Go to [https://www.zerotier.com/download/](https://www.zerotier.com/download/) and download the **Windows** installer.
+   - Run the installer and follow the prompts.
+
+2. **Join the Network**
+   - Find the ZeroTier icon in the system tray (bottom-right, near the clock). Right-click it.
+   - Select **"Join Network…"**
+   - Enter the **Network ID** provided by the server admin and click **Join**.
+
+3. **Get Authorized**
+   - Notify the server admin to authorize your node in [my.zerotier.com](https://my.zerotier.com).
+   - Once authorized, ZeroTier will assign you a virtual IP on the network.
+
+4. **Find Your ZeroTier IP (optional)**
+   - Open **Command Prompt** (`Win + R` → type `cmd` → Enter).
+   - Run:
+     ```cmd
+     ipconfig
+     ```
+   - Look for the adapter named **ZeroTier One** and note the IPv4 address.
+
+5. **Connect in Minecraft**
+   - Open **Minecraft Java Edition**.
+   - Click **Multiplayer** → **Add Server** (or **Direct Connection**).
+   - Enter the **server's ZeroTier IP** (provided by the admin) as the server address.
+   - Use the default port `25565` (no need to specify it separately).
+   - Click **Done** / **Join Server**.
+
+---
+
+### Connecting as a Player — Linux
+
+1. **Install ZeroTier One**
+   - Run the official one-line installer:
+     ```bash
+     curl -s https://install.zerotier.com | sudo bash
+     ```
+   - Alternatively, install from your package manager (Arch / Debian / Fedora):
+     ```bash
+     # Arch (AUR)
+     yay -S zerotier-one
+
+     # Debian / Ubuntu
+     sudo apt install zerotier-one
+
+     # Fedora / RHEL
+     sudo dnf install zerotier-one
+     ```
+
+2. **Enable and Start the Service**
+   ```bash
+   sudo systemctl enable --now zerotier-one
+   ```
+
+3. **Join the Network**
+   ```bash
+   sudo zerotier-cli join <NETWORK_ID>
+   ```
+   Replace `<NETWORK_ID>` with the ID provided by the server admin.
+
+4. **Get Authorized**
+   - Notify the admin to authorize your node in [my.zerotier.com](https://my.zerotier.com).
+   - Verify you've been assigned an IP:
+     ```bash
+     sudo zerotier-cli listnetworks
+     ```
+   - The output will show your assigned IP under the network (e.g., `192.168.x.x/24`). Wait until the status shows **OK**.
+
+5. **Connect in Minecraft**
+   - Open **Minecraft Java Edition**.
+   - Click **Multiplayer** → **Add Server** (or **Direct Connection**).
+   - Enter the **server's ZeroTier IP** as the server address (port `25565`).
+   - Click **Done** / **Join Server**.
+
+---
+
+### Troubleshooting
+
+| Issue | Fix |
+|---|---|
+| Can't connect after joining | Make sure the admin has **authorized** your node in the ZeroTier dashboard |
+| Node shows as `ACCESS_DENIED` | Re-run `sudo zerotier-cli join <NETWORK_ID>` and ask admin to re-authorize |
+| Minecraft times out | Confirm the server is running (`make logs`) and you are using the correct ZeroTier IP |
+| ZeroTier IP not assigned | Wait ~30 seconds after authorization, then re-check with `zerotier-cli listnetworks` |
+| Windows firewall blocking | Allow **ZeroTier One** through Windows Defender Firewall in network settings |
 
 ## Customization
 
