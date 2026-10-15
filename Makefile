@@ -1,4 +1,4 @@
-.PHONY: help up down logs console backup test-backup down-test miner lumber init zt-status zt-info zt-peers
+.PHONY: help up down logs console backup test-backup down-test miner lumber init zt-status zt-info zt-peers webapp-install webapp-dev webapp-frontend webapp-check webapp-test
 
 # Default target
 help:
@@ -24,6 +24,13 @@ help:
 	@echo "  make zt-status - Show ZeroTier daemon status"
 	@echo "  make zt-info   - List joined ZeroTier networks and assigned IPs"
 	@echo "  make zt-peers  - List connected ZeroTier peers"
+	@echo ""
+	@echo "Web Dashboard:"
+	@echo "  make webapp-install  - Install backend & frontend npm dependencies"
+	@echo "  make webapp-dev      - Start the backend dev server (port 3001)"
+	@echo "  make webapp-frontend - Start the frontend dev server (port 3000)"
+	@echo "  make webapp-check    - Syntax-check all backend JS files"
+	@echo "  make webapp-test     - Run the full test script"
 
 # Docker Compose commands
 up:
@@ -74,3 +81,29 @@ zt-info:
 
 zt-peers:
 	docker exec zerotier-vpn zerotier-cli listpeers
+
+# Web Dashboard commands
+webapp-install:
+	@echo "Installing backend dependencies..."
+	cd webapp/backend && npm install
+	@echo "Installing frontend dependencies..."
+	cd webapp/frontend && npm install
+	@echo "Done!"
+
+webapp-dev:
+	cd webapp/backend && npm run dev
+
+webapp-frontend:
+	cd webapp/frontend && npm run dev
+
+webapp-check:
+	@echo "Syntax-checking backend files..."
+	node --check webapp/backend/server.js
+	node --check webapp/backend/services/dockerService.js
+	node --check webapp/backend/routes/docker.js
+	node --check webapp/backend/sockets/docker.js
+	@echo "All files pass syntax check ✅"
+
+webapp-test:
+	@echo "Running tests..."
+	node webapp/backend/scripts/test.js

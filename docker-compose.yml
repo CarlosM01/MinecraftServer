@@ -1,35 +1,11 @@
 
 services:
-  # ── ZeroTier VPN Gateway ──────────────────────────────────
-  zerotier:
-    image: zyclonite/zerotier:latest
-    container_name: zerotier-vpn
-    devices:
-      - /dev/net/tun
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-    volumes:
-      # Persist node identity across restarts
-      - ./zerotier-config:/var/lib/zerotier-one
-    environment:
-      # Automatically join the specified network on startup
-      ZEROTIER_ONE_NETWORK_IDS: "${ZEROTIER_NETWORK_ID}"
-    ports:
-      # ZeroTier UDP port
-      - "${ZEROTIER_PORT:-9993}:9993/udp"
-      # Minecraft port exposed through the ZeroTier container
-      - "${MINECRAFT_PORT:-25565}:25565"
-    restart: unless-stopped
-
   # ── Minecraft Server ──────────────────────────────────────
   minecraft:
     image: itzg/minecraft-server
     container_name: minecraft-server
-    # Share ZeroTier's network namespace
-    network_mode: service:zerotier
-    depends_on:
-      - zerotier
+    ports:
+      - "${MINECRAFT_PORT:-25565}:25565"
     environment:
       # Accept the Minecraft EULA (REQUIRED)
       EULA: "${MINECRAFT_EULA:-TRUE}"
@@ -41,7 +17,6 @@ services:
       MEMORY: "${MINECRAFT_MEMORY:-4G}"
       # World configuration (e.g., creative mode)
       MODE: "${MINECRAFT_MODE:-survival}"
-    # NOTE: ports are defined in the zerotier service (shared network namespace)
     volumes:
       # Server data persistence (worlds, configurations, logs)
       - ${MINECRAFT_DATA_DIR:-./data}:/data

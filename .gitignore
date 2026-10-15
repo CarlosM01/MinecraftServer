@@ -2,14 +2,30 @@
 /data/
 /data-test/
 /backup/
+/Docs/
 
 # ZeroTier identity and configuration (contains private keys)
 /zerotier-config/
 
+# Web App
+# Google Drive OAuth tokens (written at runtime by googleDriveService)
+webapp/backend/config/google_drive.json
+# Local backup staging directory
+webapp/backup/
+# Frontend build output
+webapp/frontend/dist/
+
 # Node.js
 node_modules/
-npm-debug.log
-yarn-error.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
 
 # Environment Variables
 .env
@@ -21,6 +37,10 @@ yarn-error.log
 *.bak
 *.tmp
 *.swp
+
+# Editors
+.vscode/
+.idea/
 
 # OS generated files
 .DS_Store

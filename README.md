@@ -9,6 +9,7 @@ A complete and containerized Minecraft server setup using Docker Compose. This r
 - **Dockerized Server**: Uses the highly customizable `itzg/minecraft-server` Docker image, making deployment and configuration changes seamless.
 - **ZeroTier VPN Gateway**: The server runs behind a ZeroTier VPN, making it invisible from the public internet. Only authorized network members can connect.
 - **Automated Backups**: A robust Python script (`backup_script.py`) that automatically gracefully stops the server, creates a compressed backup of the world data using `rsync` and `tar`, and restarts the server.
+- **Web Dashboard Integration**: A real-time monitoring module providing live Docker stats (CPU, RAM, uptime) and streaming server logs via WebSockets (Socket.io).
 - **Custom Scripts / Bots**: Includes Node.js scripts (like `scripts/miner/miner.js`) to interact with the server or create in-game automation bots.
 - **Pre-configured Gitignore**: The `.gitignore` file is strictly configured to exclude heavy runtime data (`/data`), local backups, and node modules, making this repository lightweight and safe to share without exposing sensitive `.env` variables or server worlds.
 
@@ -61,6 +62,10 @@ We provide a convenient `Makefile` to manage the server and bots:
 - `make zt-status` - Show ZeroTier daemon status
 - `make zt-info` - List joined ZeroTier networks and assigned IPs
 - `make zt-peers` - List connected ZeroTier peers
+- `make webapp-install` - Install dependencies for the web dashboard
+- `make webapp-dev` - Start the dashboard backend server
+- `make webapp-check` - Syntax-check backend files
+- `make webapp-test` - Run full verification tests for the dashboard
 
 ## Running Backups
 
@@ -107,6 +112,45 @@ This will start the test server and leave it running. You can connect to it at `
 ```bash
 make down-test
 ```
+
+---
+
+## Web Dashboard (Monitoring)
+
+The repository includes a Node.js + Express backend that provides real-time monitoring of the Minecraft server through the Docker API.
+
+### Features
+- **Live Stats**: Real-time CPU usage, RAM (used vs limit), and container uptime.
+- **Log Streaming**: Live-streaming of Minecraft server logs (stdout/stderr) via WebSockets.
+- **React Hooks**: Ready-to-use hooks for frontend integration (`useDockerStats`, `useDockerLogs`).
+
+### Setup & Running
+1. **Install dependencies**:
+   ```bash
+   make webapp-install
+   ```
+2. **Configure (optional)**:
+   Adjust environment variables in `webapp/backend/.env` (cloned from `.env.example`).
+3. **Run the backend**:
+   ```bash
+   make webapp-dev
+   ```
+   The backend will listen on `http://localhost:3001` by default.
+
+### Verification
+You can verify the dashboard module's integrity by running:
+```bash
+make webapp-check
+```
+For a full test (including module loading):
+```bash
+make webapp-test
+```
+For a live test against the running container:
+```bash
+node webapp/backend/scripts/test.js --live
+```
+
 
 ## VPN Access (ZeroTier)
 
@@ -229,6 +273,6 @@ The Minecraft port (`25565`) is exposed through the ZeroTier container's network
 
 - [ ] Add a Discord bot integration for server status and management.
 - [ ] Implement an automated modpack updater.
-- [ ] Create a web dashboard to view logs, manage backups, and toggle bot scripts.
+- [x] Create a web dashboard to view logs, manage backups, and toggle bot scripts.
 - [ ] Add more complex in-game bots (e.g., auto-builder, guard bot, or automated farmer).
 - [ ] Add support for multiple server instances behind a proxy (e.g., Velocity or BungeeCord).

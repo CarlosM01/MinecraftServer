@@ -36,6 +36,36 @@ registra qué cambió, por qué, y cómo encontrarlo en el historial de git.
 
 ---
 
+## [feat] Módulo de monitoreo de Docker (Stats & Logs)
+
+| Meta          | Valor                                                                                    |
+|---------------|------------------------------------------------------------------------------------------|
+| **Commit**    | `current`                                                                                |
+| **Fecha**     | 2026-05-01                                                                               |
+| **Rama**      | `dev`                                                                                    |
+| **Autor**     | CarlosM01                                                                                |
+| **Archivos**  | `webapp/backend/` · `webapp/frontend/hooks/` · `Makefile` · `README.md`                  |
+| **Tags**      | #monitoring #docker #backend #websockets #react                                          |
+
+### ¿Qué cambió?
+
+- Implementación del servicio `DockerService` para la obtención de métricas y logs en tiempo real.
+- Exposición de endpoints REST y namespaces de Socket.io (`/docker/stats`, `/docker/logs`).
+- Creación de hooks de React optimizados para el consumo de métricas y logs desde el frontend.
+- Integración de nuevos comandos en el `Makefile` para gestión y testing del módulo webapp.
+
+### ¿Por qué?
+
+Habilitar el monitoreo centralizado del servidor de Minecraft (CPU, RAM, Uptime) y visualización de logs directamente desde un dashboard web, mejorando la operatividad.
+
+### Notas técnicas
+
+- Cálculo de CPU mediante el método de deltas de Docker.
+- Demultiplexación de streams de logs (stdout/stderr) usando el modem de `dockerode`.
+- Los hooks de frontend implementan batching de renders (`requestAnimationFrame`) para manejar flujos de logs intensos.
+
+---
+
 ## [feat] Integración de ZeroTier como VPN gateway
 
 | Meta         | Valor                                                                |
