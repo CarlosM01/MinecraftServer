@@ -4,8 +4,7 @@ const { google } = require("googleapis");
 
 class GoogleDriveService {
   constructor() {
-    this.serverRootDir = path.resolve(__dirname, "..", "..");
-    this.backupDir = path.join(this.serverRootDir, "backup");
+    this.backupDir = require("../config").backupsRoot;
     
     // Path to the config file
     this.configDir = path.join(__dirname, "..", "config");
@@ -248,8 +247,9 @@ class GoogleDriveService {
   /**
    * Uploads a local backup file to the backup folder on Google Drive.
    * @param {string} localFilePath Absolute path of the local backup file
+   * @param {string} [prefix] Server slug; rolling-limit pruning only touches files with this prefix
    */
-  async uploadBackup(localFilePath) {
+  async uploadBackup(localFilePath, prefix = filenamePrefix(localFilePath)) {
     if (!this.isLinked()) {
       throw new Error("Google Drive integration is not active or configured.");
     }
@@ -283,7 +283,7 @@ class GoogleDriveService {
       console.log(`[GoogleDriveService] Successfully uploaded: ${res.data.name} (ID: ${res.data.id})`);
       
       // Auto-prune remote backups to satisfy the rolling limit
-      await this.pruneRemoteBackups();
+      await this.pruneRemoteBackups(prefix);
       
       return res.data;
     } catch (err) {
@@ -294,8 +294,9 @@ class GoogleDriveService {
 
   /**
    * Deletes oldest remote backups from Google Drive if count exceeds the rolling limit.
+   * The limit applies per server (files sharing the "<slug>_" prefix).
    */
-  async pruneRemoteBackups() {
+  async pruneRemoteBackups(prefix) {
     const limit = parseInt(this.config.rollingLimit, 10);
     if (isNaN(limit) || limit <= 0) return;
     
@@ -311,7 +312,7 @@ class GoogleDriveService {
         spaces: "drive",
       });
       
-      const files = res.data.files || [];
+      const files = (res.data.files || []).filter((f) => !prefix || f.name.startsWith(`${prefix}_`));
       if (files.length > limit) {
         const toPrune = files.slice(limit);
         console.log(`[GoogleDriveService] Rolling limit reached (${limit}). Pruning ${toPrune.length} older cloud backup(s)...`);
@@ -330,19 +331,20 @@ class GoogleDriveService {
    * Downloads a remote backup file by ID from Google Drive to local backups folder.
    * @param {string} fileId Google Drive File ID
    * @param {string} filename Output local backup file name
+   * @param {string} [destDir] Target folder (defaults to the backups root)
    */
-  async downloadBackup(fileId, filename) {
+  async downloadBackup(fileId, filename, destDir = this.backupDir) {
     if (!this.isLinked()) {
       throw new Error("Google Drive integration is not active or configured.");
     }
     
     // Ensure backup directory exists
-    if (!fs.existsSync(this.backupDir)) {
-      fs.mkdirSync(this.backupDir, { recursive: true });
+    if (!fs.existsSync(destDir)) {
+      fs.mkdirSync(destDir, { recursive: true });
     }
     
     const safeFilename = path.basename(filename);
-    const destPath = path.join(this.backupDir, safeFilename);
+    const destPath = path.join(destDir, safeFilename);
     
     try {
       const drive = this._getDriveInstance();
@@ -387,6 +389,13 @@ class GoogleDriveService {
       throw err;
     }
   }
+}
+
+/** "survival_20260101_120000.tar.gz" -> "survival" */
+function filenamePrefix(file) {
+  const name = path.basename(file);
+  const m = name.match(/^(.*?)(?:_pre-upgrade)?_\d{8}_\d{6}/);
+  return m ? m[1] : null;
 }
 
 module.exports = new GoogleDriveService();

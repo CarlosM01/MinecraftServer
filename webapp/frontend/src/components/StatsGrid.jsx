@@ -21,7 +21,7 @@ export default function StatsGrid({ cpu, ramUsed, ramLimit, ramPercent, uptime, 
             <rect x="9" y="9" width="6" height="6"/>
             <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
           </svg>
-          <span className="stat-title">CPU Usage</span>
+          <span className="stat-title">CPU</span>
         </div>
         <div className="stat-value-row">
           <span className="stat-value">{cpu.toFixed(1)}</span>
@@ -43,14 +43,14 @@ export default function StatsGrid({ cpu, ramUsed, ramLimit, ramPercent, uptime, 
             <path d="M2 19h20"/>
             <path d="M8 9V6a2 2 0 012-2h4a2 2 0 012 2v3"/>
           </svg>
-          <span className="stat-title">Memory Usage</span>
+          <span className="stat-title">Memoria</span>
         </div>
         <div className="stat-value-row">
           <span className="stat-value">{ramUsed >= 1024 ? (ramUsed / 1024).toFixed(1) : ramUsed.toFixed(0)}</span>
           <span className="stat-unit">{ramUsed >= 1024 ? "GB" : "MB"}</span>
         </div>
         <div className="stat-sub">
-          {ramUsed >= 1024 ? (ramUsed / 1024).toFixed(1) + " GB" : ramUsed.toFixed(0) + " MB"} / {ramLimit >= 1024 ? (ramLimit / 1024).toFixed(1) + " GB" : ramLimit.toFixed(0) + " MB"} allocated ({ramPercent.toFixed(1)}%)
+          {ramUsed >= 1024 ? (ramUsed / 1024).toFixed(1) + " GB" : ramUsed.toFixed(0) + " MB"} / {ramLimit >= 1024 ? (ramLimit / 1024).toFixed(1) + " GB" : ramLimit.toFixed(0) + " MB"} asignados ({ramPercent.toFixed(1)}%)
         </div>
         <div className="progress-bar-track">
           <div
@@ -67,14 +67,14 @@ export default function StatsGrid({ cpu, ramUsed, ramLimit, ramPercent, uptime, 
             <circle cx="12" cy="12" r="10"/>
             <polyline points="12 6 12 12 16 14"/>
           </svg>
-          <span className="stat-title">Uptime</span>
+          <span className="stat-title">Tiempo activo</span>
         </div>
         <div className="stat-value-row">
           <span className="stat-value">{formatUptime(uptime)}</span>
         </div>
         {startedAt && (
           <div className="stat-sub">
-            Since {new Date(startedAt).toLocaleString(undefined, {
+            Desde {new Date(startedAt).toLocaleString(undefined, {
               month: "short", day: "numeric",
               hour: "2-digit", minute: "2-digit",
             })}

@@ -1,28 +1,26 @@
-import { useEffect, useState, useRef, useCallback } from "react";
-import { io } from "socket.io-client";
-
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api } from "../api";
+import { useSocketEvent } from "../socket";
 
 /**
- * Custom React hook to manage backup states, fetch/delete backups,
- * trigger backup/restore/test operations, and stream real-time logs.
+ * Backups of one server: list, operations (backup/restore/test/delete) and
+ * the real-time operation log. The caller must be subscribed to the server
+ * room (useServer) so backup:* events arrive.
  */
-export function useBackupOperations(maxLines = 300) {
+export function useBackupOperations(serverId, maxLines = 300) {
+  const id = Number(serverId);
+  const base = `/api/servers/${id}/backups`;
   const [backups, setBackups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
-  // Real-time socket states
   const [activeOp, setActiveOp] = useState(null);
   const [opStatus, setOpStatus] = useState("idle");
   const [logs, setLogs] = useState([]);
-  const [socketConnected, setSocketConnected] = useState(false);
-  
-  const socketRef = useRef(null);
+
   const bufferRef = useRef([]);
   const flushRef = useRef(null);
 
-  // Flush log buffer into state smoothly
+  // Batch log lines into one render per animation frame
   const scheduleFlush = useCallback(() => {
     if (flushRef.current) return;
     flushRef.current = requestAnimationFrame(() => {
@@ -34,160 +32,92 @@ export function useBackupOperations(maxLines = 300) {
   const clearLogs = useCallback(() => {
     bufferRef.current = [];
     setLogs([]);
+    api.post(`${base}/logs/clear`).catch(() => {});
+  }, [base]);
+
+  const applyData = useCallback((data) => {
+    setBackups(data.backups || []);
+    if (data.operation) {
+      setActiveOp(data.operation.activeOp);
+      setOpStatus(data.operation.status || "idle");
+      bufferRef.current = [...(data.operation.logs || [])];
+      setLogs(bufferRef.current);
+    }
+    setError(null);
   }, []);
 
-  // 1. Fetch initial backups list and operational status
-  const fetchBackups = useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(`${BACKEND_URL}/api/backups`);
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
-      const data = await res.json();
-      setBackups(data.backups || []);
-      
-      // Sync operation status
-      if (data.operation) {
-        setActiveOp(data.operation.activeOp);
-        setOpStatus(data.operation.status || "idle");
-        if (data.operation.logs) {
-          bufferRef.current = [...data.operation.logs];
-          setLogs([...data.operation.logs]);
-        }
-      }
-      setError(null);
-    } catch (err) {
-      console.error("[useBackupOperations] Failed to fetch backups:", err);
-      setError("Failed to fetch backups listing.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const fetchBackups = useCallback(
+    () =>
+      api
+        .get(base)
+        .then(applyData)
+        .catch((err) => setError(err.message))
+        .finally(() => setLoading(false)),
+    [base, applyData]
+  );
 
-  // 2. REST API operations
-  const triggerBackup = useCallback(async () => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/backups`, { method: "POST" });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Failed to trigger backup.");
-      }
-      // Instantly show active state in UI
-      setActiveOp("backup");
-      setOpStatus("running");
-      clearLogs();
-    } catch (err) {
-      console.error("[useBackupOperations] Error triggering backup:", err);
-      alert(err.message);
-    }
-  }, [clearLogs]);
-
-  const triggerTest = useCallback(async (filename) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/backups/${encodeURIComponent(filename)}/test`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Failed to trigger verification.");
-      }
-      setActiveOp("test");
-      setOpStatus("running");
-      clearLogs();
-    } catch (err) {
-      console.error("[useBackupOperations] Error triggering test:", err);
-      alert(err.message);
-    }
-  }, [clearLogs]);
-
-  const triggerRestore = useCallback(async (filename) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/backups/${encodeURIComponent(filename)}/restore`, {
-        method: "POST",
-      });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Failed to trigger restore.");
-      }
-      setActiveOp("restore");
-      setOpStatus("running");
-      clearLogs();
-    } catch (err) {
-      console.error("[useBackupOperations] Error triggering restore:", err);
-      alert(err.message);
-    }
-  }, [clearLogs]);
-
-  const deleteBackup = useCallback(async (filename) => {
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/backups/${encodeURIComponent(filename)}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Failed to delete backup.");
-      }
-      // Refresh list
-      fetchBackups();
-    } catch (err) {
-      console.error("[useBackupOperations] Error deleting backup:", err);
-      alert(err.message);
-    }
-  }, [fetchBackups]);
-
-  // Connect to Socket.io operations namespace
   useEffect(() => {
-    fetchBackups();
-
-    const socket = io(`${BACKEND_URL}/backups/operations`, {
-      transports: ["websocket"],
-      reconnection: true,
-      reconnectionDelay: 2000,
-    });
-
-    socketRef.current = socket;
-
-    socket.on("connect", () => setSocketConnected(true));
-    socket.on("disconnect", () => setSocketConnected(false));
-
-    socket.on("status", (data) => {
-      setActiveOp(data.activeOp);
-      setOpStatus(data.status);
-      
-      // When an operation finishes, refresh the backups list
-      if (data.status === "success" || data.status === "failed") {
-        fetchBackups();
-      }
-    });
-
-    socket.on("log_history", (history) => {
-      if (history && history.length > 0) {
-        bufferRef.current = [...history];
-        setLogs([...history]);
-      }
-    });
-
-    socket.on("log", (data) => {
-      const buf = bufferRef.current;
-      buf.push(data);
-
-      if (buf.length > maxLines) {
-        buf.splice(0, buf.length - maxLines);
-      }
-
-      scheduleFlush();
-    });
-
+    api
+      .get(base)
+      .then(applyData)
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
     return () => {
-      socket.disconnect();
-      socketRef.current = null;
-      if (flushRef.current) {
-        cancelAnimationFrame(flushRef.current);
-        flushRef.current = null;
-      }
+      if (flushRef.current) cancelAnimationFrame(flushRef.current);
+      flushRef.current = null;
     };
-  }, [maxLines, scheduleFlush, fetchBackups]);
+  }, [base, applyData]);
+
+  useSocketEvent("backup:status", (s) => {
+    if (s.serverId !== id) return;
+    setActiveOp(s.activeOp);
+    setOpStatus(s.status);
+    if (s.status === "running") {
+      bufferRef.current = [];
+      setLogs([]);
+    }
+    if (s.status === "success" || s.status === "failed") fetchBackups();
+  });
+
+  useSocketEvent("backup:log", (entry) => {
+    if (entry.serverId !== id) return;
+    const buf = bufferRef.current;
+    buf.push(entry);
+    if (buf.length > maxLines) buf.splice(0, buf.length - maxLines);
+    scheduleFlush();
+  });
+
+  const run = useCallback(
+    async (fn, op) => {
+      try {
+        await fn();
+        if (op) {
+          setActiveOp(op);
+          setOpStatus("running");
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    },
+    []
+  );
+
+  const triggerBackup = useCallback(() => run(() => api.post(base), "backup"), [run, base]);
+  const triggerTest = useCallback(
+    (name) => run(() => api.post(`${base}/${encodeURIComponent(name)}/test`), "test"),
+    [run, base]
+  );
+  const triggerRestore = useCallback(
+    (name, confirm) => run(() => api.post(`${base}/${encodeURIComponent(name)}/restore`, { confirm }), "restore"),
+    [run, base]
+  );
+  const deleteBackup = useCallback(
+    (name) => run(async () => {
+      await api.del(`${base}/${encodeURIComponent(name)}`);
+      await fetchBackups();
+    }),
+    [run, base, fetchBackups]
+  );
 
   return {
     backups,
@@ -196,7 +126,6 @@ export function useBackupOperations(maxLines = 300) {
     activeOp,
     opStatus,
     logs,
-    socketConnected,
     fetchBackups,
     triggerBackup,
     triggerTest,

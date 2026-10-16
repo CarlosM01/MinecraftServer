@@ -1,242 +1,265 @@
+const { PassThrough } = require("stream");
 const Docker = require("dockerode");
+const config = require("../config");
 
 /**
- * Singleton service wrapping a dockerode instance for container
- * stats, info, and log streaming.
+ * Thin wrapper around dockerode with the container operations the panel
+ * needs. Every method takes the container name explicitly.
  */
 class DockerService {
   constructor() {
-    const socketPath =
-      process.env.DOCKER_SOCKET_PATH || "/var/run/docker.sock";
-    this.docker = new Docker({ socketPath });
-    this.containerName =
-      process.env.MINECRAFT_CONTAINER_NAME || "minecraft-server";
-    this.allocatedMemoryMb = this._parseMemoryEnv(
-      process.env.MINECRAFT_MEMORY || "4G"
-    );
+    this.docker = new Docker({ socketPath: config.dockerSocketPath });
   }
 
-  /* ── Container resolution ─────────────────────────────────── */
-
-  /**
-   * Resolve a container by explicit ID/name or fall back to the
-   * configured MINECRAFT_CONTAINER_NAME env var.
-   * @param {string} [id] - Optional container ID or name override.
-   * @returns {import("dockerode").Container}
-   */
-  getContainer(id) {
-    return this.docker.getContainer(id || this.containerName);
+  getContainer(name) {
+    return this.docker.getContainer(name);
   }
 
-  /* ── One-shot stats snapshot ──────────────────────────────── */
-
-  /**
-   * Fetch a single stats snapshot and the container uptime.
-   * @returns {Promise<{cpu_percent: number, ram_used_mb: number, ram_limit_mb: number, ram_percent: number, uptime_ms: number}>}
-   */
-  async getStats() {
-    const container = this.getContainer();
-
-    // Grab stats (one-shot, stream: false) and inspect in parallel
-    const [stats, inspectData] = await Promise.all([
-      container.stats({ stream: false }),
-      container.inspect(),
-    ]);
-
-    return {
-      ...this._formatStats(stats),
-      uptime_ms: this._calcUptime(inspectData.State.StartedAt),
-    };
+  /** Inspect a container, returning null when it does not exist. */
+  async inspect(name) {
+    try {
+      return await this.getContainer(name).inspect();
+    } catch (err) {
+      if (err.statusCode === 404) return null;
+      throw err;
+    }
   }
 
-  /* ── Continuous stats stream ──────────────────────────────── */
+  /* ── Images ───────────────────────────────────────────────── */
+
+  async hasImage(image) {
+    try {
+      await this.docker.getImage(image).inspect();
+      return true;
+    } catch (err) {
+      if (err.statusCode === 404) return false;
+      throw err;
+    }
+  }
 
   /**
-   * Open a streaming stats connection.  Calls `onData` with formatted
-   * stats roughly every 2 s (Docker default cadence).
-   *
-   * @param {(data: object) => void} onData
-   * @param {(err: Error) => void}   onError
-   * @returns {Promise<() => void>}  Cleanup function that destroys the stream.
+   * Pull an image if it is not present locally.
+   * @param {string} image
+   * @param {(msg: string) => void} [onProgress]
    */
-  async streamStats(onData, onError) {
-    const container = this.getContainer();
+  async ensureImage(image, onProgress = () => {}) {
+    if (await this.hasImage(image)) return;
+    onProgress(`Descargando imagen ${image}…`);
+    const stream = await this.docker.pull(image);
+    await new Promise((resolve, reject) => {
+      let last = 0;
+      this.docker.modem.followProgress(
+        stream,
+        (err) => (err ? reject(err) : resolve()),
+        (evt) => {
+          // Throttle progress messages to one every 2 s
+          if (Date.now() - last > 2000 && evt.status) {
+            last = Date.now();
+            onProgress(`${evt.status}${evt.progress ? " " + evt.progress : ""}`);
+          }
+        }
+      );
+    });
+    onProgress(`Imagen ${image} lista.`);
+  }
 
-    // We need the StartedAt once for uptime — grab it before the stream
-    const inspectData = await container.inspect();
-    const startedAt = inspectData.State.StartedAt;
+  /* ── Stats ────────────────────────────────────────────────── */
 
-    const stream = await container.stats({ stream: true });
-
+  /**
+   * Open a streaming stats connection (~1 sample/s from Docker).
+   * @returns {Promise<() => void>} destroy function
+   */
+  async streamStats(name, onData, onError) {
+    const stream = await this.getContainer(name).stats({ stream: true });
+    let buffer = "";
     stream.on("data", (chunk) => {
-      try {
-        const stats = JSON.parse(chunk.toString());
-        onData({
-          ...this._formatStats(stats),
-          uptime_ms: this._calcUptime(startedAt),
-        });
-      } catch (err) {
-        onError(err);
+      buffer += chunk.toString();
+      let idx;
+      while ((idx = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        try {
+          onData(this.formatStats(JSON.parse(line)));
+        } catch (err) {
+          onError(err);
+        }
       }
     });
-
     stream.on("error", onError);
-
-    // Return a destroy function so the caller can tear down cleanly
     return () => {
       stream.removeAllListeners();
       stream.destroy();
     };
   }
 
-  /* ── Log stream ───────────────────────────────────────────── */
+  /**
+   * CPU % via the delta method: (cpuDelta / systemDelta) * numCpus * 100.
+   * RAM excludes page cache (inactive_file on cgroup v2, cache on v1).
+   */
+  formatStats(stats) {
+    const cpu = stats.cpu_stats || {};
+    const pre = stats.precpu_stats || {};
+    const cpuDelta = (cpu.cpu_usage?.total_usage || 0) - (pre.cpu_usage?.total_usage || 0);
+    const systemDelta = (cpu.system_cpu_usage || 0) - (pre.system_cpu_usage || 0);
+    const numCpus = cpu.online_cpus || cpu.cpu_usage?.percpu_usage?.length || 1;
+    const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * numCpus * 100 : 0;
+
+    const mem = stats.memory_stats || {};
+    const cache = mem.stats?.inactive_file ?? mem.stats?.cache ?? 0;
+    const usedMb = Math.max(0, (mem.usage || 0) - cache) / 1024 / 1024;
+    const limitMb = (mem.limit || 0) / 1024 / 1024;
+
+    return {
+      cpu_percent: round(cpuPercent, 2),
+      ram_used_mb: round(usedMb, 1),
+      ram_limit_mb: round(limitMb, 1),
+      ram_percent: limitMb > 0 ? round((usedMb / limitMb) * 100, 1) : 0,
+    };
+  }
+
+  /* ── Console ──────────────────────────────────────────────── */
 
   /**
-   * Follow container logs. Demuxes stdout/stderr and calls `onData`
-   * for each line with `{ timestamp, source, message }`.
-   *
-   * @param {(data: {timestamp: string, source: string, message: string}) => void} onData
-   * @param {(err: Error) => void} onError
-   * @param {number} [tail=100] - Number of historical lines to return.
-   * @returns {Promise<() => void>} Cleanup function that destroys the stream.
+   * Last `tail` lines of output. Panel containers use a TTY, so the log
+   * stream is raw (not multiplexed) and keeps the ANSI colours.
    */
-  async streamLogs(onData, onError, tail = 100) {
-    const container = this.getContainer();
+  async logsTail(name, tail = 500) {
+    const container = this.getContainer(name);
+    const info = await container.inspect();
+    const buf = await container.logs({ stdout: true, stderr: true, tail, follow: false });
+    if (info.Config.Tty) return buf.toString("utf8");
+    return demuxBuffer(buf);
+  }
 
-    const stream = await container.logs({
-      follow: true,
+  /**
+   * Attach to the container's stdin/stdout (equivalent to `docker attach`).
+   * The returned duplex stream receives console output and accepts input.
+   */
+  async attach(name) {
+    return this.getContainer(name).attach({
+      stream: true,
+      stdin: true,
       stdout: true,
       stderr: true,
-      tail,
-      timestamps: true,
+      hijack: true,
     });
+  }
 
-    // dockerode returns a raw multiplexed stream.
-    // We demux it into two PassThrough streams (stdout / stderr).
-    const { PassThrough } = require("stream");
-    const stdoutStream = new PassThrough();
-    const stderrStream = new PassThrough();
+  /**
+   * Run a command inside the container and collect its output.
+   * @returns {Promise<{output: string, exitCode: number}>}
+   */
+  async exec(name, cmd, { timeoutMs = 15000 } = {}) {
+    const container = this.getContainer(name);
+    const exec = await container.exec({
+      Cmd: cmd,
+      AttachStdout: true,
+      AttachStderr: true,
+      Tty: false,
+    });
+    const stream = await exec.start({ hijack: true, stdin: false });
+    const out = new PassThrough();
+    let output = "";
+    out.on("data", (c) => (output += c.toString("utf8")));
+    container.modem.demuxStream(stream, out, out);
 
-    container.modem.demuxStream(stream, stdoutStream, stderrStream);
-
-    const handleLine = (source) => (chunk) => {
-      const raw = chunk.toString();
-      // Each line may contain multiple newline-separated entries
-      raw.split("\n").forEach((line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
-        onData(this._parseLogLine(trimmed, source));
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        stream.destroy();
+        reject(new Error(`Timeout ejecutando '${cmd.join(" ")}'`));
+      }, timeoutMs);
+      stream.on("end", () => {
+        clearTimeout(timer);
+        resolve();
       });
-    };
-
-    stdoutStream.on("data", handleLine("stdout"));
-    stderrStream.on("data", handleLine("stderr"));
-
-    stream.on("error", onError);
-
-    return () => {
-      stream.removeAllListeners();
-      stdoutStream.removeAllListeners();
-      stderrStream.removeAllListeners();
-      stream.destroy();
-      stdoutStream.destroy();
-      stderrStream.destroy();
-    };
+      stream.on("error", (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+    });
+    const { ExitCode } = await exec.inspect();
+    return { output, exitCode: ExitCode ?? 0 };
   }
 
-  /* ── Container info (lightweight) ─────────────────────────── */
+  /* ── Events ───────────────────────────────────────────────── */
 
   /**
-   * Return a small info payload about the container.
-   * @returns {Promise<{name: string, status: string, image: string, startedAt: string}>}
+   * Subscribe to container events for panel-managed containers.
+   * Reconnects automatically if the event stream drops.
    */
-  async getInfo() {
-    const container = this.getContainer();
-    const data = await container.inspect();
-
-    return {
-      name: data.Name.replace(/^\//, ""),
-      status: data.State.Status,
-      image: data.Config.Image,
-      startedAt: data.State.StartedAt,
+  async watchEvents(onEvent) {
+    const connect = async () => {
+      try {
+        const stream = await this.docker.getEvents({
+          filters: { type: ["container"], label: ["mc-panel.server"] },
+        });
+        let buffer = "";
+        stream.on("data", (chunk) => {
+          buffer += chunk.toString();
+          let idx;
+          while ((idx = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 1);
+            if (!line) continue;
+            try {
+              onEvent(JSON.parse(line));
+            } catch (err) {
+              console.error("[docker events] Bad payload:", err.message);
+            }
+          }
+        });
+        const retry = () => {
+          stream.removeAllListeners();
+          setTimeout(connect, 3000);
+        };
+        stream.on("end", retry);
+        stream.on("error", retry);
+      } catch (err) {
+        console.error("[docker events] Cannot subscribe:", err.message);
+        setTimeout(connect, 5000);
+      }
     };
+    await connect();
   }
 
-  /* ── Private helpers ──────────────────────────────────────── */
-
-  /**
-   * Calculate CPU % from a Docker stats payload using the delta method.
-   * Formula: (cpuDelta / systemDelta) * numCpus * 100
-   */
-  _formatStats(stats) {
-    const cpuDelta =
-      stats.cpu_stats.cpu_usage.total_usage -
-      stats.precpu_stats.cpu_usage.total_usage;
-    const systemDelta =
-      stats.cpu_stats.system_cpu_usage - stats.precpu_stats.system_cpu_usage;
-
-    const numCpus =
-      stats.cpu_stats.online_cpus ||
-      (stats.cpu_stats.cpu_usage.percpu_usage
-        ? stats.cpu_stats.cpu_usage.percpu_usage.length
-        : 1);
-
-    const cpuPercent =
-      systemDelta > 0
-        ? parseFloat(((cpuDelta / systemDelta) * numCpus * 100).toFixed(2))
-        : 0;
-
-    const ramUsedBytes =
-      stats.memory_stats.usage - (stats.memory_stats.stats?.cache || 0);
-    const ramUsedMb = parseFloat((ramUsedBytes / 1024 / 1024).toFixed(1));
-    const ramLimitMb = this.allocatedMemoryMb;
-
-    return {
-      cpu_percent: cpuPercent,
-      ram_used_mb: ramUsedMb,
-      ram_limit_mb: ramLimitMb,
-      ram_percent: parseFloat(
-        ((ramUsedMb / ramLimitMb) * 100).toFixed(1)
-      ),
-    };
-  }
-
-  /**
-   * Derive uptime in milliseconds from a container's StartedAt ISO string.
-   */
-  _calcUptime(startedAt) {
-    return Date.now() - new Date(startedAt).getTime();
-  }
-
-  /**
-   * Parse a Docker log line (with timestamps enabled) into a structured object.
-   * Docker timestamp format: `2026-05-01T10:00:00.123456789Z <message>`
-   */
-  _parseLogLine(line, source) {
-    // Timestamps are the first space-separated token
-    const spaceIdx = line.indexOf(" ");
-    if (spaceIdx === -1) {
-      return { timestamp: new Date().toISOString(), source, message: line };
+  /** All host ports currently published by any container. */
+  async publishedPorts() {
+    const containers = await this.docker.listContainers({ all: true });
+    const ports = new Set();
+    for (const c of containers) {
+      for (const p of c.Ports || []) if (p.PublicPort) ports.add(p.PublicPort);
     }
-    return {
-      timestamp: line.slice(0, spaceIdx),
-      source,
-      message: line.slice(spaceIdx + 1),
-    };
-  }
-
-  /**
-   * Parse a memory string like "4G", "8G", "2048M" into megabytes.
-   * Falls back to 4096 MB if the format is unrecognised.
-   */
-  _parseMemoryEnv(memStr) {
-    const match = memStr.trim().match(/^(\d+(?:\.\d+)?)\s*([gGmM])?$/);
-    if (!match) return 4096;
-    const value = parseFloat(match[1]);
-    const unit = (match[2] || "M").toUpperCase();
-    return unit === "G" ? value * 1024 : value;
+    // Stopped containers do not list Ports; look at their HostConfig instead
+    for (const c of containers.filter((x) => x.State !== "running")) {
+      try {
+        const info = await this.getContainer(c.Id).inspect();
+        for (const bindings of Object.values(info.HostConfig.PortBindings || {})) {
+          for (const b of bindings || []) if (b.HostPort) ports.add(parseInt(b.HostPort, 10));
+        }
+      } catch {
+        /* container vanished meanwhile */
+      }
+    }
+    return ports;
   }
 }
 
-// ── Singleton export ──────────────────────────────────────────
+function round(n, digits) {
+  const f = 10 ** digits;
+  return Math.round(n * f) / f;
+}
+
+/** Decode a multiplexed (non-TTY) log buffer into plain text. */
+function demuxBuffer(buf) {
+  let out = "";
+  let offset = 0;
+  while (offset + 8 <= buf.length) {
+    const size = buf.readUInt32BE(offset + 4);
+    out += buf.slice(offset + 8, offset + 8 + size).toString("utf8");
+    offset += 8 + size;
+  }
+  return out;
+}
+
 module.exports = new DockerService();

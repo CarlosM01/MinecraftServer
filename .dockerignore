@@ -1,0 +1,12 @@
+**/node_modules
+**/.env
+.git
+data
+data-test
+servers
+backup
+zerotier-config
+Docs
+webapp/frontend/dist
+webapp/backend/data
+webapp/backend/config

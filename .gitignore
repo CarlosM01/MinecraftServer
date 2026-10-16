@@ -2,9 +2,10 @@
 /data/
 /data-test/
 /backup/
+/servers/
 /Docs/
 
-# ZeroTier identity and configuration (contains private keys)
+# Legacy ZeroTier state (private keys) — delete the directory with sudo, then drop this line
 /zerotier-config/
 
 # Web App
@@ -14,6 +15,8 @@ webapp/backend/config/google_drive.json
 webapp/backup/
 # Frontend build output
 webapp/frontend/dist/
+# Panel database (servers registry, players, metrics, audit log)
+webapp/backend/data/
 
 # Node.js
 node_modules/

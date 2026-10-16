@@ -1,18 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import { formatDate } from "../utils";
+import { formatDate, formatBytes } from "../utils";
 import { useGoogleDrive } from "../hooks";
 import "./BackupsPanel.css";
 
-// Helper to format bytes into human-readable sizes (MB, GB)
-function formatBytes(bytes) {
-  if (!bytes || isNaN(bytes)) return "0 Bytes";
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
-
 export default function BackupsPanel({
+  serverId,
+  serverName,
+  slug,
+  refresh,
   backups,
   loading,
   error,
@@ -26,12 +21,13 @@ export default function BackupsPanel({
   clearLogs,
 }) {
   const [confirmRestoreFile, setConfirmRestoreFile] = useState(null);
+  const [restoreConfirmText, setRestoreConfirmText] = useState("");
   const [confirmDeleteFile, setConfirmDeleteFile] = useState(null);
   const [showConsole, setShowConsole] = useState(false);
   const [repoTab, setRepoTab] = useState("local"); // 'local' | 'cloud'
   
   // Google Drive Cloud integration states
-  const drive = useGoogleDrive();
+  const drive = useGoogleDrive(serverId, slug);
   const [showGoogleSettings, setShowGoogleSettings] = useState(false);
   const [confirmDeleteCloudFile, setConfirmDeleteCloudFile] = useState(null);
   
@@ -123,8 +119,9 @@ export default function BackupsPanel({
 
   const confirmRestoreAction = () => {
     if (confirmRestoreFile) {
-      triggerRestore(confirmRestoreFile.name);
+      triggerRestore(confirmRestoreFile.name, restoreConfirmText);
       setConfirmRestoreFile(null);
+      setRestoreConfirmText("");
     }
   };
 
@@ -183,6 +180,7 @@ export default function BackupsPanel({
         message: `⬇️ Fetching "${cloudFile.name}" from Google Drive to local server...`,
       });
       await drive.downloadBackup(cloudFile.id, cloudFile.name);
+      refresh?.();
       setToast({
         type: "success",
         message: `Successfully downloaded "${cloudFile.name}" from cloud.`,
@@ -264,14 +262,33 @@ export default function BackupsPanel({
               the active world data, and restart the server. Your current
               unsaved changes will be lost!
             </div>
+            <div className="form-group">
+              <label htmlFor="restore-confirm">
+                Type <strong>{serverName}</strong> to confirm
+              </label>
+              <input
+                id="restore-confirm"
+                className="input"
+                autoFocus
+                value={restoreConfirmText}
+                onChange={(e) => setRestoreConfirmText(e.target.value)}
+              />
+            </div>
             <div className="modal-actions">
               <button
                 className="btn btn-muted"
-                onClick={() => setConfirmRestoreFile(null)}
+                onClick={() => {
+                  setConfirmRestoreFile(null);
+                  setRestoreConfirmText("");
+                }}
               >
                 Cancel
               </button>
-              <button className="btn btn-warning" onClick={confirmRestoreAction}>
+              <button
+                className="btn btn-warning"
+                disabled={restoreConfirmText !== serverName}
+                onClick={confirmRestoreAction}
+              >
                 Yes, Restore Now
               </button>
             </div>

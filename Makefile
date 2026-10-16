@@ -1,61 +1,71 @@
-.PHONY: help up down logs console backup test-backup down-test miner lumber init zt-status zt-info zt-peers webapp-install webapp-dev webapp-frontend webapp-check webapp-test
+.PHONY: help up down logs console backup test-backup down-test miner lumber init panel import-legacy webapp-install webapp-dev webapp-frontend webapp-build webapp-check webapp-test
+
+# Host ids handed to the panel container (file ownership + docker socket access)
+COMPOSE_ENV = PANEL_UID=$$(id -u) PANEL_GID=$$(id -g) DOCKER_GID=$$(getent group docker | cut -d: -f3)
 
 # Default target
 help:
-	@echo "Available commands:"
-	@echo "  make up      - Start the Minecraft server (detached)"
-	@echo "  make down    - Stop the Minecraft server"
-	@echo "  make logs    - View the Minecraft server logs"
-	@echo "  make console - Access the Minecraft server terminal (Ctrl+P, Ctrl+Q to exit)"
-	@echo "  make backup  - Run the automated backup script (use FLAGS=\"--flag\" to pass arguments)"
-	@echo "                 Flags:"
-	@echo "                   --source <dir>      World directory to backup"
-	@echo "                   --dest <dir>        Directory where backups will be saved"
-	@echo "                   --compose-dir <dir> Directory containing docker-compose.yml"
-	@echo "                   --no-compress       Do not compress the backup into a .tar.gz file"
-	@echo "                   --keep-uncompressed Keep the original directory after compressing"
+	@echo "Web panel (manages every Minecraft server):"
+	@echo "  make up              - Build and start the panel container (http://localhost:3001)"
+	@echo "  make down            - Stop the panel container (Minecraft servers keep running)"
+	@echo "  make logs            - Follow the panel logs"
+	@echo "  make panel           - Run the panel directly on the host (build frontend + start backend)"
+	@echo "  make import-legacy   - Register the old ./data server in the panel (panel must be running)"
+	@echo ""
+	@echo "Servers (SERVER=<slug>, see the panel; containers are named mc-<slug>):"
+	@echo "  make console SERVER=<slug> - Attach to a server console (Ctrl+P, Ctrl+Q to exit)"
+	@echo "  make backup SERVER=<slug> [DATA=<dir>] - Back up a server from the command line"
 	@echo "  make test-backup FILE=<path> - Test a backup file (add FLAGS=\"--manual\" for manual inspection)"
-	@echo "  make down-test - Stop and clean up the test server environment"
+	@echo "  make down-test       - Stop and clean up the test server environment"
+	@echo ""
+	@echo "Bots:"
 	@echo "  make miner   - Run the XP Miner bot"
 	@echo "  make lumber  - Run the Lumberjack bot"
 	@echo "  make init    - Initialize and install dependencies for the Node.js bots"
 	@echo ""
-	@echo "ZeroTier VPN:"
-	@echo "  make zt-status - Show ZeroTier daemon status"
-	@echo "  make zt-info   - List joined ZeroTier networks and assigned IPs"
-	@echo "  make zt-peers  - List connected ZeroTier peers"
-	@echo ""
-	@echo "Web Dashboard:"
+	@echo "Development:"
 	@echo "  make webapp-install  - Install backend & frontend npm dependencies"
 	@echo "  make webapp-dev      - Start the backend dev server (port 3001)"
 	@echo "  make webapp-frontend - Start the frontend dev server (port 3000)"
+	@echo "  make webapp-build    - Build the frontend into webapp/frontend/dist"
 	@echo "  make webapp-check    - Syntax-check all backend JS files"
-	@echo "  make webapp-test     - Run the full test script"
+	@echo "  make webapp-test     - Run unit tests (FLAGS=\"--live\" for the end-to-end test)"
 
-# Docker Compose commands
+# Panel container
 up:
-	docker compose up -d
+	mkdir -p servers backup data webapp/backend/data webapp/backend/config
+	$(COMPOSE_ENV) docker compose up -d --build
 
 down:
-	docker compose down
+	$(COMPOSE_ENV) docker compose down
 
 logs:
 	docker compose logs -f
 
-console:
-	@echo "WARNING: To exit the console without stopping the server, press Ctrl+P followed by Ctrl+Q."
-	docker attach minecraft-server
+panel: webapp-build
+	cd webapp/backend && npm start
 
-# Python Backup Script
+import-legacy:
+	node webapp/backend/scripts/import-legacy.js
+
+# Server helpers
+console:
+	@if [ -z "$(SERVER)" ]; then echo "Error: SERVER argument is required (e.g. make console SERVER=survival)"; exit 1; fi
+	@echo "WARNING: To exit the console without stopping the server, press Ctrl+P followed by Ctrl+Q."
+	docker attach mc-$(SERVER)
+
 backup:
-	python3 scripts/backup_script.py $(FLAGS)
+	@if [ -z "$(SERVER)" ]; then echo "Error: SERVER argument is required (e.g. make backup SERVER=survival)"; exit 1; fi
+	python3 scripts/backup_script.py --source $(or $(DATA),servers/$(SERVER)/data) --dest backup/$(SERVER) \
+		--container mc-$(SERVER) --prefix $(SERVER) \
+		--exclude=/libraries/ --exclude=/versions/ --exclude=/cache/ --exclude=/logs/ --exclude='/*.jar' $(FLAGS)
 
 test-backup:
 	@if [ -z "$(FILE)" ]; then echo "Error: FILE argument is required (e.g. make test-backup FILE=backup/mybackup.tar.gz)"; exit 1; fi
 	python3 scripts/test_backup.py --file $(FILE) $(FLAGS)
 
 down-test:
-	docker compose -f docker-compose.test.yml down
+	-docker rm -f minecraft-server-test
 	rm -rf data-test
 
 # Node.js Bots
@@ -72,16 +82,6 @@ init:
 	cd scripts/lumber && npm install
 	@echo "Done!"
 
-# ZeroTier VPN commands
-zt-status:
-	docker exec zerotier-vpn zerotier-cli status
-
-zt-info:
-	docker exec zerotier-vpn zerotier-cli listnetworks
-
-zt-peers:
-	docker exec zerotier-vpn zerotier-cli listpeers
-
 # Web Dashboard commands
 webapp-install:
 	@echo "Installing backend dependencies..."
@@ -96,14 +96,13 @@ webapp-dev:
 webapp-frontend:
 	cd webapp/frontend && npm run dev
 
+webapp-build:
+	cd webapp/frontend && npm run build
+
 webapp-check:
 	@echo "Syntax-checking backend files..."
-	node --check webapp/backend/server.js
-	node --check webapp/backend/services/dockerService.js
-	node --check webapp/backend/routes/docker.js
-	node --check webapp/backend/sockets/docker.js
+	@cd webapp/backend && find . -name '*.js' -not -path './node_modules/*' -exec node --check {} \;
 	@echo "All files pass syntax check ✅"
 
 webapp-test:
-	@echo "Running tests..."
-	node webapp/backend/scripts/test.js
+	cd webapp/backend && node scripts/test.js $(FLAGS)

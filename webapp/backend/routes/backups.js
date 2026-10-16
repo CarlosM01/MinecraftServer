@@ -1,87 +1,72 @@
 const express = require("express");
 const backupService = require("../services/backupService");
+const auditService = require("../services/auditService");
+const { asyncRoute, HttpError } = require("../httpError");
+const { loadServer } = require("../middleware/common");
 
-const router = express.Router();
-
-/**
- * GET /api/backups
- * Returns the list of available backups, active operation status, and in-memory log buffer.
- */
-router.get("/", async (_req, res) => {
-  try {
-    const list = await backupService.listBackups();
-    const status = backupService.getStatus();
-    res.json({
-      backups: list,
-      operation: {
-        activeOp: status.activeOp,
-        status: status.status,
-        logs: status.logs,
-      },
-    });
-  } catch (err) {
-    console.error("[GET /api/backups] Error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+const router = express.Router({ mergeParams: true });
+router.use(loadServer);
 
 /**
- * POST /api/backups
- * Trigger a new backup process using the automated backup python script.
+ * GET /api/servers/:id/backups
+ * Backups of this server plus the current operation status and log buffer.
  */
+router.get(
+  "/",
+  asyncRoute(async (req, res) => {
+    res.json({ backups: await backupService.list(req.row), operation: backupService.getStatus(req.row) });
+  })
+);
+
+/** POST /api/servers/:id/backups — start a backup in the background. */
 router.post("/", (req, res) => {
   try {
-    backupService.triggerBackup();
-    res.status(202).json({ message: "Backup operation initiated successfully." });
+    backupService.triggerBackup(req.row);
+    auditService.log(req, "backup.create", { serverId: req.row.id, target: req.row.name });
+    res.status(202).json({ message: "Backup iniciado." });
   } catch (err) {
-    console.error("[POST /api/backups] Error:", err.message);
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 });
 
-/**
- * POST /api/backups/:name/restore
- * Overwrite the active world save folder with the content of the selected backup.
- */
+/** POST /api/servers/:id/backups/:name/restore — overwrite the server data. */
 router.post("/:name/restore", (req, res) => {
-  const { name } = req.params;
   try {
-    backupService.triggerRestore(name);
-    res.status(202).json({ message: `Restore operation for '${name}' initiated successfully.` });
+    if (req.body?.confirm !== req.row.name) {
+      throw new HttpError(400, "Escribe el nombre exacto del servidor para confirmar.");
+    }
+    backupService.triggerRestore(req.row, req.params.name);
+    auditService.log(req, "backup.restore", { serverId: req.row.id, target: req.params.name });
+    res.status(202).json({ message: `Restaurando '${req.params.name}'.` });
   } catch (err) {
-    console.error(`[POST /api/backups/${name}/restore] Error:`, err.message);
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 });
 
-/**
- * POST /api/backups/:name/test
- * Launch the test server to verify the integrity and loading of the selected backup.
- */
+/** POST /api/servers/:id/backups/:name/test — boot a temporary test server. */
 router.post("/:name/test", (req, res) => {
-  const { name } = req.params;
   try {
-    backupService.triggerTest(name);
-    res.status(202).json({ message: `Test verification for '${name}' initiated successfully.` });
+    backupService.triggerTest(req.row, req.params.name);
+    auditService.log(req, "backup.test", { serverId: req.row.id, target: req.params.name });
+    res.status(202).json({ message: `Verificando '${req.params.name}'.` });
   } catch (err) {
-    console.error(`[POST /api/backups/${name}/test] Error:`, err.message);
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 });
 
-/**
- * DELETE /api/backups/:name
- * Permanently delete the backup archive from the disk.
- */
-router.delete("/:name", async (req, res) => {
-  const { name } = req.params;
-  try {
-    await backupService.deleteBackup(name);
-    res.json({ message: `Backup '${name}' deleted successfully.` });
-  } catch (err) {
-    console.error(`[DELETE /api/backups/${name}] Error:`, err.message);
-    res.status(400).json({ error: err.message });
-  }
+router.post("/logs/clear", (req, res) => {
+  backupService.clearLogs(req.row);
+  res.json({ ok: true });
 });
+
+/** DELETE /api/servers/:id/backups/:name */
+router.delete(
+  "/:name",
+  asyncRoute(async (req, res) => {
+    await backupService.remove(req.row, req.params.name);
+    auditService.log(req, "backup.delete", { serverId: req.row.id, target: req.params.name });
+    res.json({ message: `Backup '${req.params.name}' eliminado.` });
+  })
+);
 
 module.exports = router;

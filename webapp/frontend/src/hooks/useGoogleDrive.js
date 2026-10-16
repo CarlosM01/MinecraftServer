@@ -2,7 +2,12 @@ import { useState, useCallback, useEffect } from "react";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "";
 
-export function useGoogleDrive() {
+/**
+ * Google Drive integration for the backups of one server.
+ * @param {number} serverId  Server whose backups are uploaded/downloaded.
+ * @param {string} slug      Remote files are filtered by the "<slug>_" prefix.
+ */
+export function useGoogleDrive(serverId, slug) {
   const [status, setStatus] = useState({
     isLinked: false,
     email: null,
@@ -67,7 +72,7 @@ export function useGoogleDrive() {
       const res = await fetch(`${BACKEND_URL}/api/google-drive/list`);
       if (!res.ok) throw new Error("Failed to fetch remote backups.");
       const data = await res.json();
-      setRemoteBackups(data.backups || []);
+      setRemoteBackups((data.backups || []).filter((b) => !slug || b.name.startsWith(`${slug}_`)));
       setError(null);
     } catch (err) {
       console.error("[useGoogleDrive] Error fetching remote backups:", err);
@@ -75,7 +80,7 @@ export function useGoogleDrive() {
     } finally {
       setLoadingList(false);
     }
-  }, [status.isLinked]);
+  }, [status.isLinked, slug]);
 
   // 4. Save credentials
   const saveConfig = useCallback(async (newConfig) => {
@@ -131,7 +136,7 @@ export function useGoogleDrive() {
     try {
       setOperationActive(true);
       // Send current browser origin so the callback redirects us back here
-      const clientOrigin = window.location.origin;
+      const clientOrigin = window.location.origin + window.location.pathname;
       const res = await fetch(`${BACKEND_URL}/api/google-drive/auth-url?origin=${encodeURIComponent(clientOrigin)}`);
       if (!res.ok) {
         const errData = await res.json();
@@ -154,7 +159,7 @@ export function useGoogleDrive() {
   const uploadBackup = useCallback(async (filename) => {
     try {
       setOperationActive(true);
-      const res = await fetch(`${BACKEND_URL}/api/google-drive/upload/${encodeURIComponent(filename)}`, {
+      const res = await fetch(`${BACKEND_URL}/api/google-drive/upload/${encodeURIComponent(filename)}?serverId=${serverId}`, {
         method: "POST",
       });
       if (!res.ok) {
@@ -170,7 +175,7 @@ export function useGoogleDrive() {
     } finally {
       setOperationActive(false);
     }
-  }, [fetchRemoteBackups]);
+  }, [fetchRemoteBackups, serverId]);
 
   // 8. Download a remote backup file to local server
   const downloadBackup = useCallback(async (id, filename) => {
@@ -179,7 +184,7 @@ export function useGoogleDrive() {
       const res = await fetch(`${BACKEND_URL}/api/google-drive/download/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename }),
+        body: JSON.stringify({ filename, serverId }),
       });
       if (!res.ok) {
         const errData = await res.json();
@@ -193,7 +198,7 @@ export function useGoogleDrive() {
     } finally {
       setOperationActive(false);
     }
-  }, []);
+  }, [serverId]);
 
   // 9. Delete a remote backup file from Drive
   const deleteRemoteBackup = useCallback(async (id) => {

@@ -2,6 +2,7 @@ const express = require("express");
 const path = require("path");
 const googleDriveService = require("../services/googleDriveService");
 const backupService = require("../services/backupService");
+const serverService = require("../services/serverService");
 
 const router = express.Router();
 
@@ -145,8 +146,9 @@ router.get("/list", async (req, res) => {
 router.post("/upload/:filename", async (req, res) => {
   const { filename } = req.params;
   try {
-    const localFilePath = path.join(backupService.backupDir, path.basename(filename));
-    const uploadRes = await googleDriveService.uploadBackup(localFilePath);
+    const row = serverService.getRow(req.query.serverId);
+    const localFilePath = backupService.resolveBackupPath(row, path.basename(filename));
+    const uploadRes = await googleDriveService.uploadBackup(localFilePath, row.slug);
     res.json({ message: "Backup file uploaded successfully.", id: uploadRes.id });
   } catch (err) {
     console.error(`[POST /api/google-drive/upload/${filename}] Error:`, err.message);
@@ -160,13 +162,14 @@ router.post("/upload/:filename", async (req, res) => {
  */
 router.post("/download/:id", async (req, res) => {
   const { id } = req.params;
-  const { filename } = req.body;
+  const { filename, serverId } = req.body;
   try {
     if (!filename) {
       throw new Error("Missing filename in request body.");
     }
     
-    await googleDriveService.downloadBackup(id, filename);
+    const row = serverService.getRow(serverId);
+    await googleDriveService.downloadBackup(id, filename, backupService.dirFor(row));
     res.json({ message: `Backup downloaded successfully: ${filename}` });
   } catch (err) {
     console.error(`[POST /api/google-drive/download/${id}] Error:`, err.message);

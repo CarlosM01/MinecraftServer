@@ -36,6 +36,44 @@ registra qué cambió, por qué, y cómo encontrarlo en el historial de git.
 
 ---
 
+## [feat] Panel de administración multi-servidor · [chore] Eliminar ZeroTier
+
+| Meta          | Valor                                                                                    |
+|---------------|------------------------------------------------------------------------------------------|
+| **Commit**    | `current`                                                                                |
+| **Fecha**     | 2026-10-15                                                                               |
+| **Rama**      | `main`                                                                                   |
+| **Autor**     | CarlosM01                                                                                |
+| **Archivos**  | `webapp/` · `scripts/*.py` · `docker-compose.yml` · `Makefile` · `README.md` · `.env.example` |
+| **Tags**      | #panel #multi-server #players #terminal #modrinth #backups #docker                       |
+
+### ¿Qué cambió?
+
+- **ZeroTier eliminado**: fuera del compose, Makefile (`zt-*`), README y `Docs/zerotier.md`. La VPN se configura en el host.
+- **Multi-servidor**: el backend crea un contenedor `itzg/minecraft-server` por servidor (`mc-<slug>`, datos en `servers/<slug>/data`) con RAM, CPU, puerto, versión, tipo/loader y versión de Java propios. Registro en SQLite (`webapp/backend/data/panel.db`).
+- **Terminal interactiva** por servidor (`docker attach` compartido + xterm.js) con historial, autocompletado y bloqueo de caracteres de control.
+- **Jugadores**: detección de entradas/salidas/IP desde la consola, reconciliación cada 30 s con `list` por RCON, historial de sesiones, tiempo jugado y acciones kick/ban/op/whitelist.
+- **Mods/plugins**: búsqueda e instalación desde Modrinth con dependencias, subida de `.jar`, activar/desactivar, actualizaciones e informe de compatibilidad antes de cambiar de versión.
+- **Salud**: métricas históricas (CPU, RAM, jugadores, TPS/MSPT), resumen del host con protección de sobreasignación, disco, crash reports y detección de crash loop.
+- **Mundos**: varios por servidor, subir/descargar zip, reset de Nether/End, pre-generación con Chunky, mapa web (BlueMap/Dynmap).
+- **Backups por servidor** (`backup/<slug>/`), backup automático antes de upgrades, clonar servidores y crear servidores desde un backup.
+- **Seguridad**: login de admin (cookie JWT httpOnly), locks por servidor (409 si hay otra operación), confirmación escribiendo el nombre y log de auditoría.
+- `docker-compose.yml` ya solo levanta el panel (opcional); `make import-legacy` registra el antiguo `./data`.
+
+### ¿Por qué?
+
+El prototipo solo monitorizaba un contenedor fijo y no era funcional. Hacía falta gestionar varios servidores, sus recursos, mods, versiones y jugadores desde un único panel. ZeroTier se gestiona mejor de forma independiente en el host.
+
+### Notas técnicas
+
+- RCON vía `docker exec rcon-cli` (incluido en la imagen): no se publica ningún puerto RCON.
+- JLine redibuja el prompt con `\r`; el parser se queda con el texto tras el último `\r`. En Paper la línea "logged in" (IP) llega después del "joined".
+- Paper 26.x requiere Java 25: cada servidor elige el tag de imagen (`latest`, `java21`, `java17`, `java8`…).
+- En Paper 1.21.11+ `level.dat` no existe hasta el primer guardado; un mundo se detecta también por `region/` + `session.lock`/`uid.dat`.
+- Los scripts de backup ya no usan `shell=True`, reinician el servidor antes de comprimir y aceptan backups antiguos (solo mundo) y completos.
+
+---
+
 ## [feat] Módulo de monitoreo de Docker (Stats & Logs)
 
 | Meta          | Valor                                                                                    |
